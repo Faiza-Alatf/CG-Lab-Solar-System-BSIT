@@ -1,5 +1,6 @@
 
 #include "../include/solar_system.h"
+#include "../include/lighting.h"
 #include <cmath>
 #include <cstdio>
 
