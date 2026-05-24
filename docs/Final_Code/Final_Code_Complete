@@ -1,0 +1,1501 @@
+// ============================================================
+//  INTERACTIVE SOLAR SYSTEM SIMULATION  -  ULTIMATE v4.0
+//  BS IT - 6th Semester | Computer Graphics Lab
+//  Group: Faiza Altaf, Hadiqa Mehmood, Mahnoor Sharif
+//  Library: FreeGLUT + OpenGL
+// ============================================================
+
+#include <GL/freeglut.h>
+#include <cmath>
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
+#define PI 3.14159265358979323846f
+
+// ============================================================
+//  ANIMATION STATE
+// ============================================================
+float speedMultiplier = 1.0f;
+bool  paused          = false;
+
+// ============================================================
+//  CAMERA STATE
+// ============================================================
+float camAngleX  = 28.0f;
+float camAngleY  = 0.0f;
+float camZoom    = 68.0f;
+int   lastMouseX = 0, lastMouseY = 0;
+bool  mouseDown  = false;
+
+// Drone camera mode
+bool  droneCamera    = false;
+float droneCamAngleX = 15.0f;
+float droneCamAngleY = 0.0f;
+float droneCamZoom   = 18.0f;
+
+bool  topDownView    = false;
+bool  fullscreen     = false;
+
+// ============================================================
+//  ORBITAL ANGLES
+// ============================================================
+float earthAngle   = 0.0f, marsAngle    = 0.0f;
+float venusAngle   = 0.0f, mercuryAngle = 0.0f;
+float jupiterAngle = 0.0f, saturnAngle  = 0.0f;
+float uranusAngle  = 0.0f, neptuneAngle = 0.0f;
+
+// Moon/satellite angles
+float moonAngle    = 0.0f, phobosAngle  = 0.0f;
+float deimosAngle  = 0.0f, titaniaAngle = 0.0f;
+float oberonAngle  = 0.0f, tritonAngle  = 0.0f;
+
+// Self-rotation
+float sunRotation    = 0.0f, earthRotation  = 0.0f;
+float marsRotation   = 0.0f, jupiterRotation= 0.0f;
+float saturnRotation = 0.0f, neptuneRotation= 0.0f;
+float venusRotation  = 0.0f, mercuryRotation= 0.0f;
+
+// Effects
+float sunPulse      = 0.0f;
+float asteroidAngle = 0.0f;
+float cometAngle    = 0.0f;
+float nebulaPhase   = 0.0f;
+float totalDays     = 0.0f;
+float planetGlowPhase[9] = {0};
+
+// ============================================================
+//  DRONE / SPACECRAFT
+// ============================================================
+float droneAngle    = 0.0f;
+float droneRadius   = 38.0f;
+float droneTilt     = 12.0f;
+float droneRotation = 0.0f;
+float droneBlinkTimer = 0.0f;
+bool  droneBlinkOn  = true;
+
+float droneX = 0, droneY = 0, droneZ = 0;
+
+// ============================================================
+//  FEATURE FLAGS
+// ============================================================
+bool showOrbits  = true;
+bool showHUD     = true;
+int  selectedPlanet = 0;
+
+// ============================================================
+//  SHOOTING STAR
+// ============================================================
+struct ShootingStar {
+    float x, y, z, dx, dy, dz, life, maxLife;
+    bool active;
+};
+ShootingStar shootingStar;
+float shootingStarTimer = 280.0f;
+
+// ============================================================
+//  ASTEROID BELT
+// ============================================================
+struct Asteroid { float angle, radius, yOff, size; };
+std::vector<Asteroid> asteroids;
+
+// ============================================================
+//  KUIPER BELT
+// ============================================================
+struct KuiperObj { float angle, radius, yOff, size; };
+std::vector<KuiperObj> kuiperBelt;
+
+// ============================================================
+//  PLANET INFO DATA
+// ============================================================
+struct PlanetInfo {
+    const char* name;
+    const char* diameter;
+    const char* distFromSun;
+    const char* orbitalPeriod;
+    const char* moons;
+    const char* funFact;
+    float r, g, b;
+};
+
+PlanetInfo planetData[] = {
+    {"", "", "", "", "", "", 0,0,0},
+    {"MERCURY", "4,879 km", "57.9M km", "88 Earth Days",
+     "0 Moons", "Extreme temps: -180C to 430C!", 0.7f, 0.68f, 0.64f},
+    {"VENUS", "12,104 km", "108.2M km", "225 Earth Days",
+     "0 Moons", "Hottest planet - 465C average surface!", 0.95f, 0.78f, 0.45f},
+    {"EARTH", "12,742 km", "149.6M km", "365.25 Days",
+     "1 Moon", "Only planet known to harbor life.", 0.25f, 0.52f, 0.95f},
+    {"MARS", "6,779 km", "227.9M km", "687 Earth Days",
+     "2 Moons", "Olympus Mons - tallest volcano in solar system!", 0.85f, 0.35f, 0.15f},
+    {"JUPITER", "139,820 km", "778.5M km", "11.86 Earth Years",
+     "95 Moons", "Great Red Spot storm raging 350+ years!", 0.85f, 0.68f, 0.48f},
+    {"SATURN", "116,460 km", "1.43B km", "29.46 Earth Years",
+     "146 Moons", "Rings are only 10-100 meters thick!", 0.92f, 0.85f, 0.62f},
+    {"URANUS", "50,724 km", "2.87B km", "84 Earth Years",
+     "27 Moons", "Rotates on its side - 98 degree axial tilt!", 0.5f, 0.85f, 0.92f},
+    {"NEPTUNE", "49,244 km", "4.50B km", "165 Earth Years",
+     "16 Moons", "Winds reach 2,100 km/h - solar system record!", 0.18f, 0.28f, 0.95f},
+};
+
+float infoPanelAlpha = 0.0f;
+float infoPanelSlide = 0.0f;
+
+// ============================================================
+//  HELPER: ORBIT RING
+// ============================================================
+void drawOrbitRing(float radius, float r=1, float g=1, float b=1, float a=0.15f)
+{
+    if (!showOrbits) return;
+    glDisable(GL_LIGHTING);
+    glColor4f(r, g, b, a);
+    glLineStipple(1, 0xAAAA);
+    glEnable(GL_LINE_STIPPLE);
+    glBegin(GL_LINE_LOOP);
+    for (int i = 0; i < 720; i++) {
+        float rad = i * PI / 360.0f;
+        glVertex3f(radius * cosf(rad), 0.0f, radius * sinf(rad));
+    }
+    glEnd();
+    glDisable(GL_LINE_STIPPLE);
+    glEnable(GL_LIGHTING);
+}
+
+void drawSphere(float radius, float r, float g, float b)
+{
+    glColor3f(r, g, b);
+    glutSolidSphere(radius, 64, 64);
+}
+
+void drawBandedSphere(float radius, int numBands,
+    float r1, float g1, float b1,
+    float r2, float g2, float b2,
+    float r3=-1, float g3=0, float b3=0)
+{
+    int slices = 64, stacks = numBands * 2;
+    for (int i = 0; i < stacks; i++) {
+        float t0 = (float)i / stacks;
+        float t1 = (float)(i+1) / stacks;
+        float phi0 = PI * (t0 - 0.5f);
+        float phi1 = PI * (t1 - 0.5f);
+
+        float bandVal = sinf((float)i / stacks * PI * numBands * 2.0f);
+        float mix = (bandVal + 1.0f) * 0.5f;
+        float cr, cg, cb;
+        if (r3 >= 0 && i % 7 == 3) {
+            cr = r3; cg = g3; cb = b3;
+        } else {
+            cr = r1 + (r2-r1)*mix;
+            cg = g1 + (g2-g1)*mix;
+            cb = b1 + (b2-b1)*mix;
+        }
+        glColor3f(cr, cg, cb);
+
+        glBegin(GL_QUAD_STRIP);
+        for (int j = 0; j <= slices; j++) {
+            float theta = 2.0f * PI * j / slices;
+            float ct = cosf(theta), st = sinf(theta);
+            float cp0 = cosf(phi0), sp0 = sinf(phi0);
+            float cp1 = cosf(phi1), sp1 = sinf(phi1);
+            glNormal3f(ct*cp0, sp0, st*cp0);
+            glVertex3f(radius*ct*cp0, radius*sp0, radius*st*cp0);
+            glNormal3f(ct*cp1, sp1, st*cp1);
+            glVertex3f(radius*ct*cp1, radius*sp1, radius*st*cp1);
+        }
+        glEnd();
+    }
+}
+
+void drawEarthSphere(float radius)
+{
+    int slices = 64, stacks = 64;
+    for (int i = 0; i < stacks; i++) {
+        float phi0 = PI * ((float)i/stacks - 0.5f);
+        float phi1 = PI * ((float)(i+1)/stacks - 0.5f);
+
+        glBegin(GL_QUAD_STRIP);
+        for (int j = 0; j <= slices; j++) {
+            float theta = 2.0f * PI * j / slices;
+            float ct = cosf(theta), st = sinf(theta);
+            float cp0 = cosf(phi0), sp0 = sinf(phi0);
+            float cp1 = cosf(phi1), sp1 = sinf(phi1);
+
+            float nx = ct * cp0, ny = sp0, nz = st * cp0;
+            float landNoise = sinf(nx * 3.7f + 1.2f) * cosf(ny * 4.1f) * sinf(nz * 3.3f + 0.8f)
+                            + 0.5f * sinf(nx * 7.3f) * cosf(nz * 6.1f);
+            bool isLand = (landNoise > 0.15f);
+            bool isPole = (fabsf(phi0) > 1.2f);
+
+            if (isPole) glColor3f(0.92f, 0.95f, 1.0f);
+            else if (isLand) glColor3f(0.18f + 0.1f*landNoise, 0.55f + 0.08f*landNoise, 0.22f);
+            else             glColor3f(0.08f, 0.28f + 0.1f*(phi0+1.5f)/3.0f, 0.72f);
+
+            glNormal3f(ct*cp0, sp0, st*cp0);
+            glVertex3f(radius*ct*cp0, radius*sp0, radius*st*cp0);
+
+            nx = ct*cp1; ny = sp1; nz = st*cp1;
+            landNoise = sinf(nx*3.7f+1.2f)*cosf(ny*4.1f)*sinf(nz*3.3f+0.8f)
+                      + 0.5f*sinf(nx*7.3f)*cosf(nz*6.1f);
+            isLand = (landNoise > 0.15f);
+            isPole = (fabsf(phi1) > 1.2f);
+
+            if (isPole) glColor3f(0.92f, 0.95f, 1.0f);
+            else if (isLand) glColor3f(0.18f+0.1f*landNoise, 0.55f+0.08f*landNoise, 0.22f);
+            else             glColor3f(0.08f, 0.28f+0.1f*(phi1+1.5f)/3.0f, 0.72f);
+
+            glNormal3f(ct*cp1, sp1, st*cp1);
+            glVertex3f(radius*ct*cp1, radius*sp1, radius*st*cp1);
+        }
+        glEnd();
+    }
+}
+
+void drawMarsSphere(float radius)
+{
+    int slices = 64, stacks = 64;
+    for (int i = 0; i < stacks; i++) {
+        float phi0 = PI * ((float)i/stacks - 0.5f);
+        float phi1 = PI * ((float)(i+1)/stacks - 0.5f);
+        glBegin(GL_QUAD_STRIP);
+        for (int j = 0; j <= slices; j++) {
+            float theta = 2.0f * PI * j / slices;
+            float ct = cosf(theta), st = sinf(theta);
+            float cp0 = cosf(phi0), sp0 = sinf(phi0);
+            float cp1 = cosf(phi1), sp1 = sinf(phi1);
+
+            float nx = ct*cp0, ny=sp0, nz=st*cp0;
+            float n = sinf(nx*5.1f)*cosf(ny*4.3f)*sinf(nz*6.7f);
+            bool crater = (sinf(nx*11.3f+0.5f)*cosf(nz*9.7f) > 0.65f);
+            bool pole = (fabsf(phi0) > 1.35f);
+
+            if (pole)        glColor3f(0.92f, 0.88f, 0.85f);
+            else if (crater) glColor3f(0.48f+n*0.05f, 0.18f+n*0.04f, 0.10f+n*0.03f);
+            else             glColor3f(0.78f+n*0.08f, 0.32f+n*0.06f, 0.12f+n*0.04f);
+
+            glNormal3f(ct*cp0, sp0, st*cp0);
+            glVertex3f(radius*ct*cp0, radius*sp0, radius*st*cp0);
+
+            nx=ct*cp1; ny=sp1; nz=st*cp1;
+            n = sinf(nx*5.1f)*cosf(ny*4.3f)*sinf(nz*6.7f);
+            crater=(sinf(nx*11.3f+0.5f)*cosf(nz*9.7f)>0.65f);
+            pole=(fabsf(phi1)>1.35f);
+
+            if (pole)        glColor3f(0.92f,0.88f,0.85f);
+            else if (crater) glColor3f(0.48f+n*0.05f,0.18f+n*0.04f,0.10f+n*0.03f);
+            else             glColor3f(0.78f+n*0.08f,0.32f+n*0.06f,0.12f+n*0.04f);
+
+            glNormal3f(ct*cp1, sp1, st*cp1);
+            glVertex3f(radius*ct*cp1, radius*sp1, radius*st*cp1);
+        }
+        glEnd();
+    }
+}
+
+void drawMercurySphere(float radius)
+{
+    int slices = 48, stacks = 48;
+    for (int i = 0; i < stacks; i++) {
+        float phi0 = PI*((float)i/stacks-0.5f);
+        float phi1 = PI*((float)(i+1)/stacks-0.5f);
+        glBegin(GL_QUAD_STRIP);
+        for (int j = 0; j <= slices; j++) {
+            float theta = 2.0f*PI*j/slices;
+            float ct=cosf(theta), st=sinf(theta);
+            float cp0=cosf(phi0), sp0=sinf(phi0);
+            float cp1=cosf(phi1), sp1=sinf(phi1);
+
+            float nx=ct*cp0, ny=sp0, nz=st*cp0;
+            float n = sinf(nx*8.1f+0.3f)*cosf(ny*7.3f)*sinf(nz*9.7f);
+            float base = 0.52f + n*0.12f;
+            glColor3f(base, base*0.97f, base*0.93f);
+            glNormal3f(ct*cp0,sp0,st*cp0);
+            glVertex3f(radius*ct*cp0,radius*sp0,radius*st*cp0);
+
+            nx=ct*cp1; ny=sp1; nz=st*cp1;
+            n=sinf(nx*8.1f+0.3f)*cosf(ny*7.3f)*sinf(nz*9.7f);
+            base=0.52f+n*0.12f;
+            glColor3f(base,base*0.97f,base*0.93f);
+            glNormal3f(ct*cp1,sp1,st*cp1);
+            glVertex3f(radius*ct*cp1,radius*sp1,radius*st*cp1);
+        }
+        glEnd();
+    }
+}
+
+void drawVenusSphere(float radius)
+{
+    int slices=64, stacks=64;
+    for (int i=0; i<stacks; i++) {
+        float phi0=PI*((float)i/stacks-0.5f);
+        float phi1=PI*((float)(i+1)/stacks-0.5f);
+        glBegin(GL_QUAD_STRIP);
+        for (int j=0; j<=slices; j++) {
+            float theta=2.0f*PI*j/slices;
+            float ct=cosf(theta), st=sinf(theta);
+            float cp0=cosf(phi0), sp0=sinf(phi0);
+            float cp1=cosf(phi1), sp1=sinf(phi1);
+
+            float nx=ct*cp0, ny=sp0, nz=st*cp0;
+            float swirl=sinf(nx*4.0f+ny*3.0f)*cosf(nz*5.0f+nx*2.0f);
+            float band =cosf(phi0*6.0f)*0.3f;
+            float v=0.75f+swirl*0.12f+band;
+            glColor3f(fminf(v*1.0f,1.0f), fminf(v*0.82f,1.0f), fminf(v*0.35f,1.0f));
+            glNormal3f(ct*cp0,sp0,st*cp0);
+            glVertex3f(radius*ct*cp0,radius*sp0,radius*st*cp0);
+
+            nx=ct*cp1; ny=sp1; nz=st*cp1;
+            swirl=sinf(nx*4.0f+ny*3.0f)*cosf(nz*5.0f+nx*2.0f);
+            band=cosf(phi1*6.0f)*0.3f;
+            v=0.75f+swirl*0.12f+band;
+            glColor3f(fminf(v,1.0f),fminf(v*0.82f,1.0f),fminf(v*0.35f,1.0f));
+            glNormal3f(ct*cp1,sp1,st*cp1);
+            glVertex3f(radius*ct*cp1,radius*sp1,radius*st*cp1);
+        }
+        glEnd();
+    }
+}
+
+void drawIceGiantSphere(float radius, float hr, float hg, float hb,
+                                      float lr, float lg, float lb)
+{
+    int slices=64, stacks=64;
+    for (int i=0; i<stacks; i++) {
+        float phi0=PI*((float)i/stacks-0.5f);
+        float phi1=PI*((float)(i+1)/stacks-0.5f);
+        glBegin(GL_QUAD_STRIP);
+        for (int j=0; j<=slices; j++) {
+            float theta=2.0f*PI*j/slices;
+            float ct=cosf(theta), st=sinf(theta);
+            float cp0=cosf(phi0), sp0=sinf(phi0);
+            float cp1=cosf(phi1), sp1=sinf(phi1);
+
+            float nx=ct*cp0, nz=st*cp0;
+            float n=sinf(nx*3.5f)*cosf(nz*4.2f+phi0*2.0f)*0.15f;
+            float band=cosf(phi0*4.0f)*0.15f;
+            float mix=0.5f+band+n;
+            mix=fmaxf(0.0f,fminf(1.0f,mix));
+            glColor3f(lr+(hr-lr)*mix, lg+(hg-lg)*mix, lb+(hb-lb)*mix);
+            glNormal3f(ct*cp0,sp0,st*cp0);
+            glVertex3f(radius*ct*cp0,radius*sp0,radius*st*cp0);
+
+            nx=ct*cp1; nz=st*cp1;
+            n=sinf(nx*3.5f)*cosf(nz*4.2f+phi1*2.0f)*0.15f;
+            band=cosf(phi1*4.0f)*0.15f;
+            mix=fmaxf(0.0f,fminf(1.0f,0.5f+band+n));
+            glColor3f(lr+(hr-lr)*mix, lg+(hg-lg)*mix, lb+(hb-lb)*mix);
+            glNormal3f(ct*cp1,sp1,st*cp1);
+            glVertex3f(radius*ct*cp1,radius*sp1,radius*st*cp1);
+        }
+        glEnd();
+    }
+}
+
+void drawAtmosphere(float radius, float r, float g, float b, float thickness=0.12f)
+{
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glColor4f(r, g, b, 0.12f);
+    glutSolidSphere(radius + thickness, 32, 32);
+    glColor4f(r, g, b, 0.06f);
+    glutSolidSphere(radius + thickness*2.0f, 24, 24);
+    glColor4f(r, g, b, 0.03f);
+    glutSolidSphere(radius + thickness*3.5f, 20, 20);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_LIGHTING);
+}
+
+void drawSelectionRing(float radius, float pulse)
+{
+    glDisable(GL_LIGHTING);
+    float r = radius * 1.6f + 0.15f * sinf(pulse);
+    glLineWidth(2.0f);
+    glColor4f(0.2f, 1.0f, 0.5f, 0.7f + 0.3f*sinf(pulse*1.5f));
+    glBegin(GL_LINE_LOOP);
+    for (int i=0; i<64; i++) {
+        float a = i * 2.0f * PI / 64.0f;
+        glVertex3f(r*cosf(a), 0, r*sinf(a));
+    }
+    glEnd();
+    glPushMatrix();
+    glRotatef(pulse * 30.0f, 0, 1, 0);
+    for (int i=0; i<4; i++) {
+        float a = i * PI / 2.0f;
+        glBegin(GL_LINES);
+        glColor4f(0.2f, 1.0f, 0.5f, 0.9f);
+        glVertex3f((r+0.1f)*cosf(a), 0, (r+0.1f)*sinf(a));
+        glColor4f(0.2f, 1.0f, 0.5f, 0.0f);
+        glVertex3f((r+0.5f)*cosf(a), 0, (r+0.5f)*sinf(a));
+        glEnd();
+    }
+    glPopMatrix();
+    glLineWidth(1.0f);
+    glEnable(GL_LIGHTING);
+}
+
+void setupLighting()
+{
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE);
+
+    GLfloat lPos[] = {0,0,0,1};
+    GLfloat lAmb[] = {0.06f,0.05f,0.04f,1};
+    GLfloat lDif[] = {1.0f,0.96f,0.84f,1};
+    GLfloat lSpc[] = {1.0f,1.0f,0.9f,1};
+    glLightfv(GL_LIGHT0, GL_POSITION, lPos);
+    glLightfv(GL_LIGHT0, GL_AMBIENT,  lAmb);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE,  lDif);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, lSpc);
+    glLightf(GL_LIGHT0, GL_CONSTANT_ATTENUATION,  1.0f);
+    glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION,    0.003f);
+    glLightf(GL_LIGHT0, GL_QUADRATIC_ATTENUATION, 0.0001f);
+
+    GLfloat matSpec[]={0.4f,0.4f,0.4f,1};
+    glMaterialfv(GL_FRONT, GL_SPECULAR, matSpec);
+    glMaterialf (GL_FRONT, GL_SHININESS, 40.0f);
+    glShadeModel(GL_SMOOTH);
+}
+
+void drawStars()
+{
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    float nb=0.03f+0.015f*sinf(nebulaPhase*0.008f);
+    glColor4f(0.12f,0.04f,nb*4.0f,0.035f);
+    glPushMatrix(); glTranslatef(-90,25,-160); glutSolidSphere(60,8,8); glPopMatrix();
+    glColor4f(nb*2.0f,0.03f,0.15f,0.025f);
+    glPushMatrix(); glTranslatef(130,-35,-190); glutSolidSphere(75,8,8); glPopMatrix();
+    glColor4f(0.05f,nb*3.0f,0.08f,0.02f);
+    glPushMatrix(); glTranslatef(50,60,-170); glutSolidSphere(50,8,8); glPopMatrix();
+    glDepthMask(GL_TRUE);
+
+    glPointSize(2.0f);
+    glBegin(GL_POINTS);
+    srand(42);
+    for (int i=0; i<1800; i++) {
+        float x=((rand()%600)-300)*1.0f;
+        float y=((rand()%600)-300)*1.0f;
+        float z=((rand()%600)-300)*1.0f;
+        if (fabsf(x)<90&&fabsf(y)<90&&fabsf(z)<90) x+=150.0f;
+        float twinkle=0.65f+0.35f*sinf(nebulaPhase*0.04f+i*0.41f);
+        int type=rand()%8;
+        if      (type==0) glColor4f(1.0f,0.82f,0.65f,twinkle);
+        else if (type==1) glColor4f(0.68f,0.78f,1.0f,twinkle);
+        else if (type==2) glColor4f(1.0f,0.92f,0.5f,twinkle*0.85f);
+        else if (type==3) glColor4f(1.0f,0.45f,0.35f,twinkle*0.7f);
+        else              glColor4f(1.0f,1.0f,1.0f,twinkle);
+        glVertex3f(x,y,z);
+    }
+    glEnd();
+    glEnable(GL_LIGHTING);
+}
+
+void initShootingStar()
+{
+    srand((int)(shootingStarTimer*137+totalDays));
+    shootingStar.x=((rand()%400)-200)*1.0f;
+    shootingStar.y=100.0f+(rand()%80);
+    shootingStar.z=((rand()%400)-200)*1.0f;
+    float sp=2.8f+(rand()%4);
+    shootingStar.dx=((rand()%12)-6)*0.18f;
+    shootingStar.dy=-sp;
+    shootingStar.dz=((rand()%12)-6)*0.18f;
+    shootingStar.maxLife=45.0f+(rand()%25);
+    shootingStar.life=shootingStar.maxLife;
+    shootingStar.active=true;
+}
+
+void drawShootingStar()
+{
+    if (!shootingStar.active) return;
+    glDisable(GL_LIGHTING);
+    float alpha=shootingStar.life/shootingStar.maxLife;
+    glLineWidth(2.5f);
+    glBegin(GL_LINES);
+    glColor4f(1.0f,1.0f,0.9f,alpha);
+    glVertex3f(shootingStar.x,shootingStar.y,shootingStar.z);
+    glColor4f(1.0f,0.75f,0.25f,0.0f);
+    glVertex3f(shootingStar.x-shootingStar.dx*8,
+               shootingStar.y-shootingStar.dy*8,
+               shootingStar.z-shootingStar.dz*8);
+    glEnd();
+    glLineWidth(1.0f);
+    glEnable(GL_LIGHTING);
+}
+
+void initAsteroids()
+{
+    srand(777);
+    for (int i=0; i<400; i++) {
+        Asteroid a;
+        a.angle =(rand()%3600)/10.0f;
+        a.radius=27.0f+(rand()%500)/100.0f;
+        a.yOff  =((rand()%120)-60)/220.0f;
+        a.size  =0.04f+(rand()%9)/100.0f;
+        asteroids.push_back(a);
+    }
+}
+
+void drawAsteroidBelt()
+{
+    glDisable(GL_LIGHTING);
+    for (int i=0; i<(int)asteroids.size(); i++) {
+        float ang=(asteroids[i].angle+asteroidAngle)*PI/180.0f;
+        float x=asteroids[i].radius*cosf(ang);
+        float z=asteroids[i].radius*sinf(ang);
+        float sh=0.42f+0.18f*sinf(ang*4.0f);
+        glColor3f(sh,sh*0.93f,sh*0.86f);
+        glPushMatrix();
+        glTranslatef(x,asteroids[i].yOff,z);
+        glutSolidSphere(asteroids[i].size,4,4);
+        glPopMatrix();
+    }
+    glEnable(GL_LIGHTING);
+}
+
+void initKuiperBelt()
+{
+    srand(555);
+    for (int i=0; i<250; i++) {
+        KuiperObj k;
+        k.angle =(rand()%3600)/10.0f;
+        k.radius=66.0f+(rand()%700)/100.0f;
+        k.yOff  =((rand()%240)-120)/100.0f;
+        k.size  =0.03f+(rand()%6)/100.0f;
+        kuiperBelt.push_back(k);
+    }
+}
+
+void drawKuiperBelt()
+{
+    glDisable(GL_LIGHTING);
+    for (int i=0; i<(int)kuiperBelt.size(); i++) {
+        float ang=(kuiperBelt[i].angle+asteroidAngle*0.25f)*PI/180.0f;
+        float x=kuiperBelt[i].radius*cosf(ang);
+        float z=kuiperBelt[i].radius*sinf(ang);
+        glColor4f(0.48f,0.58f,0.72f,0.55f);
+        glPushMatrix();
+        glTranslatef(x,kuiperBelt[i].yOff,z);
+        glutSolidSphere(kuiperBelt[i].size,4,4);
+        glPopMatrix();
+    }
+    glEnable(GL_LIGHTING);
+}
+
+void drawComet()
+{
+    glDisable(GL_LIGHTING);
+    float ang=cometAngle*PI/180.0f;
+    float tilt=30.0f*PI/180.0f;
+    float R=70.0f;
+    float x=R*cosf(ang);
+    float y=R*sinf(ang)*sinf(tilt);
+    float z=R*sinf(ang)*cosf(tilt)*0.28f;
+
+    for (int layer=0; layer<12; layer++) {
+        float la=layer*PI/6.0f;
+        float sp=0.5f*(float)layer/(12.0f);
+        float alpha=0.22f-layer*0.015f;
+        if(alpha<0.01f) alpha=0.01f;
+        float len=8.0f+layer*0.3f;
+        glBegin(GL_LINES);
+        glColor4f(0.5f,0.82f,1.0f,alpha);
+        glVertex3f(x,y,z);
+        glColor4f(0.25f,0.55f,1.0f,0.0f);
+        glVertex3f(x+len*cosf(ang+PI)+sp*cosf(la),
+                   y+len*0.25f,
+                   z+len*sinf(ang+PI)+sp*sinf(la));
+        glEnd();
+    }
+    glPushMatrix(); glTranslatef(x,y,z);
+    glColor4f(0.5f,0.85f,1.0f,0.35f); glutSolidSphere(0.42f,12,12);
+    glColor4f(0.9f,0.97f,1.0f,1.0f);  glutSolidSphere(0.20f,12,12);
+    glPopMatrix();
+    glEnable(GL_LIGHTING);
+}
+
+void drawDrone()
+{
+    glPushMatrix();
+    glTranslatef(droneX, droneY, droneZ);
+    glRotatef(droneAngle + 90.0f, 0, 1, 0);
+    glRotatef(droneRotation, 0, 1, 0);
+
+    glDisable(GL_LIGHTING);
+
+    glColor3f(0.72f, 0.75f, 0.82f);
+    glPushMatrix();
+    glScalef(1.0f, 0.35f, 0.55f);
+    glutSolidSphere(0.32f, 10, 6);
+    glPopMatrix();
+
+    glColor4f(0.45f, 0.85f, 1.0f, 0.75f);
+    glPushMatrix();
+    glTranslatef(0.15f, 0.12f, 0);
+    glScalef(0.9f, 0.7f, 0.8f);
+    glutSolidSphere(0.18f, 10, 8);
+    glPopMatrix();
+
+    float panelAlpha = 0.82f;
+    glColor4f(0.18f, 0.38f, 0.78f, panelAlpha);
+    glPushMatrix(); glTranslatef(0, 0, 0.55f); glScalef(0.55f, 0.04f, 0.32f); glutSolidSphere(1.0f, 6, 4); glPopMatrix();
+    glPushMatrix(); glTranslatef(0, 0,-0.55f); glScalef(0.55f, 0.04f, 0.32f); glutSolidSphere(1.0f, 6, 4); glPopMatrix();
+    glColor4f(0.4f, 0.7f, 1.0f, 0.5f);
+    for (int p=-1; p<=1; p+=2) {
+        for (int g=0; g<3; g++) {
+            float goff = -0.25f + g*0.25f;
+            glBegin(GL_LINES);
+            glVertex3f(-0.5f, 0, p*0.55f+goff*0.3f);
+            glVertex3f( 0.5f, 0, p*0.55f+goff*0.3f);
+            glEnd();
+        }
+    }
+
+    glColor3f(0.55f, 0.52f, 0.50f);
+    glPushMatrix(); glTranslatef(-0.28f, 0.08f, 0.18f); glScalef(0.6f,0.6f,1.0f); glutSolidSphere(0.08f,8,6); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.28f, 0.08f,-0.18f); glScalef(0.6f,0.6f,1.0f); glutSolidSphere(0.08f,8,6); glPopMatrix();
+
+    glColor4f(0.5f, 0.85f, 1.0f, 0.55f + 0.2f*sinf(nebulaPhase*0.2f));
+    glPushMatrix(); glTranslatef(-0.38f, 0.08f, 0.18f); glutSolidSphere(0.06f,8,6); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.38f, 0.08f,-0.18f); glutSolidSphere(0.06f,8,6); glPopMatrix();
+
+    if (droneBlinkOn) {
+        glColor4f(1.0f, 0.15f, 0.15f, 0.95f);
+        glPushMatrix(); glTranslatef(0, 0, 0.6f); glutSolidSphere(0.06f,6,6); glPopMatrix();
+        glColor4f(0.15f, 1.0f, 0.25f, 0.95f);
+        glPushMatrix(); glTranslatef(0, 0,-0.6f); glutSolidSphere(0.06f,6,6); glPopMatrix();
+        glColor4f(1.0f, 1.0f, 0.5f, 0.9f);
+        glPushMatrix(); glTranslatef(-0.35f, 0.05f, 0); glutSolidSphere(0.05f,6,6); glPopMatrix();
+    }
+
+    glColor3f(0.8f, 0.8f, 0.8f);
+    glBegin(GL_LINES);
+    glVertex3f(0.1f, 0.15f, 0);
+    glVertex3f(0.1f, 0.45f, 0);
+    glEnd();
+    glColor4f(1.0f,0.8f,0.2f,0.8f);
+    glPushMatrix(); glTranslatef(0.1f,0.47f,0); glutSolidSphere(0.04f,6,6); glPopMatrix();
+
+    glEnable(GL_LIGHTING);
+    glPopMatrix();
+}
+
+void drawSun()
+{
+    glDisable(GL_LIGHTING);
+    float pulse=sinf(sunPulse*0.04f);
+    float glowSize=4.5f+0.2f*pulse;
+
+    glDepthMask(GL_FALSE);
+    glColor4f(1.0f,0.35f,0.01f,0.025f); glutSolidSphere(glowSize+2.8f,16,16);
+    glColor4f(1.0f,0.48f,0.03f,0.045f); glutSolidSphere(glowSize+1.8f,18,18);
+    glColor4f(1.0f,0.60f,0.07f,0.08f);  glutSolidSphere(glowSize+0.9f,22,22);
+    glColor4f(1.0f,0.70f,0.12f,0.13f);  glutSolidSphere(glowSize+0.3f,26,26);
+    glDepthMask(GL_TRUE);
+
+    glPushMatrix();
+    glRotatef(sunRotation*0.25f,0,1,0);
+    for (int i=0; i<24; i++) {
+        float a=i*2.0f*PI/24.0f+sunPulse*0.01f;
+        float ri=3.9f, ro=6.2f+0.7f*sinf(sunPulse*0.07f+i*1.3f);
+        float alpha=0.12f+0.06f*sinf(sunPulse*0.09f+i);
+        glColor4f(1.0f,0.72f,0.18f,alpha);
+        glBegin(GL_TRIANGLES);
+        float w=0.12f;
+        glVertex3f(ri*cosf(a-w),ri*sinf(a-w),0);
+        glVertex3f(ri*cosf(a+w),ri*sinf(a+w),0);
+        glVertex3f(ro*cosf(a),  ro*sinf(a),  0);
+        glEnd();
+    }
+    glPopMatrix();
+
+    glPushMatrix();
+    glRotatef(sunRotation*0.1f,0,1,0);
+    for (int i=0; i<6; i++) {
+        float a=i*PI/3.0f+sunPulse*0.005f;
+        float ri=3.5f, ro=7.5f+1.5f*sinf(sunPulse*0.04f+i);
+        glColor4f(1.0f,0.55f,0.08f,0.07f);
+        glBegin(GL_TRIANGLES);
+        float w=0.06f;
+        glVertex3f(ri*cosf(a-w),ri*sinf(a-w),0);
+        glVertex3f(ri*cosf(a+w),ri*sinf(a+w),0);
+        glVertex3f(ro*cosf(a),  ro*sinf(a),  0);
+        glEnd();
+    }
+    glPopMatrix();
+
+    glPushMatrix();
+    glRotatef(sunRotation,0,1,0);
+    glColor3f(1.0f,1.0f,0.88f);
+    glutSolidSphere(3.0f,64,64);
+    glDepthMask(GL_FALSE);
+    glColor4f(1.0f,0.85f,0.06f,0.85f); glutSolidSphere(3.42f,32,32);
+    glColor4f(1.0f,0.62f,0.03f,0.55f); glutSolidSphere(3.58f,24,24);
+    glDepthMask(GL_TRUE);
+    glPopMatrix();
+
+    glPushMatrix();
+    glRotatef(sunRotation*0.75f,0,1,0);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.6f,0.25f,0.0f,0.72f);
+    glPushMatrix(); glTranslatef(2.6f,1.4f,2.0f); glScalef(1.0f,0.5f,1.0f); glutSolidSphere(0.36f,12,12); glPopMatrix();
+    glPushMatrix(); glTranslatef(-2.1f,-0.9f,2.7f); glScalef(0.8f,0.4f,1.0f); glutSolidSphere(0.26f,10,10); glPopMatrix();
+    glPushMatrix(); glTranslatef(1.1f,-2.1f,-2.4f); glScalef(0.7f,0.35f,1.0f); glutSolidSphere(0.18f,8,8); glPopMatrix();
+    glPushMatrix(); glTranslatef(-1.5f,2.2f,-1.8f); glScalef(0.6f,0.3f,0.8f); glutSolidSphere(0.14f,8,8); glPopMatrix();
+    glDepthMask(GL_TRUE);
+    glPopMatrix();
+
+    glEnable(GL_LIGHTING);
+}
+
+void drawMercury()
+{
+    float orbitR=8.0f;
+    drawOrbitRing(orbitR,0.7f,0.7f,0.7f,0.15f);
+    glPushMatrix();
+    glRotatef(mercuryAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(mercuryRotation,0,1,0);
+    drawAtmosphere(0.38f,0.6f,0.56f,0.5f,0.08f);
+    drawMercurySphere(0.38f);
+    if (selectedPlanet==1) drawSelectionRing(0.38f, sunPulse*0.08f);
+    glPopMatrix();
+}
+
+void drawVenus()
+{
+    float orbitR=12.0f;
+    drawOrbitRing(orbitR,0.9f,0.85f,0.6f,0.15f);
+    glPushMatrix();
+    glRotatef(venusAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(venusRotation,0,1,0);
+    drawAtmosphere(0.95f,0.95f,0.78f,0.38f,0.14f);
+    drawVenusSphere(0.95f);
+    if (selectedPlanet==2) drawSelectionRing(0.95f, sunPulse*0.08f);
+    glPopMatrix();
+}
+
+void drawEarthSystem()
+{
+    float orbitR=17.0f;
+    drawOrbitRing(orbitR,0.3f,0.6f,1.0f,0.22f);
+    glPushMatrix();
+    glRotatef(earthAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(earthRotation,0,1,0);
+
+    drawAtmosphere(1.0f,0.35f,0.62f,0.95f,0.14f);
+    drawEarthSphere(1.0f);
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glColor4f(1.0f,1.0f,1.0f,0.13f);
+    glutSolidSphere(1.06f,32,32);
+    glColor4f(0.9f,0.95f,1.0f,0.07f);
+    glutSolidSphere(1.10f,24,24);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_LIGHTING);
+
+    if (selectedPlanet==3) drawSelectionRing(1.0f, sunPulse*0.08f);
+
+    glPushMatrix();
+    glRotatef(moonAngle,0,1,0);
+    glTranslatef(2.5f,0,0);
+    drawMercurySphere(0.27f);
+    glPopMatrix();
+    glPopMatrix();
+}
+
+void drawMarsSystem()
+{
+    float orbitR=23.0f;
+    drawOrbitRing(orbitR,0.85f,0.4f,0.2f,0.18f);
+    glPushMatrix();
+    glRotatef(marsAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(marsRotation,0,1,0);
+
+    drawAtmosphere(0.7f,0.85f,0.35f,0.12f,0.1f);
+    drawMarsSphere(0.7f);
+    if (selectedPlanet==4) drawSelectionRing(0.7f, sunPulse*0.08f);
+
+    glPushMatrix(); glRotatef(phobosAngle,0,1,0); glTranslatef(1.5f,0.05f,0);
+    drawMercurySphere(0.11f); glPopMatrix();
+    glPushMatrix(); glRotatef(deimosAngle,0,1,0.2f); glTranslatef(2.2f,0.15f,0);
+    drawMercurySphere(0.08f); glPopMatrix();
+    glPopMatrix();
+}
+
+void drawJupiter()
+{
+    float orbitR=32.0f;
+    drawOrbitRing(orbitR,0.85f,0.7f,0.5f,0.15f);
+    glPushMatrix();
+    glRotatef(jupiterAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(jupiterRotation,0,1,0);
+
+    drawAtmosphere(2.2f,0.88f,0.68f,0.45f,0.18f);
+    drawBandedSphere(2.2f,18,
+        0.86f,0.70f,0.48f,
+        0.62f,0.40f,0.26f,
+        0.70f,0.25f,0.12f);
+
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.72f,0.20f,0.08f,0.75f);
+    glPushMatrix(); glTranslatef(1.5f,-0.3f,1.7f); glScalef(1.0f,0.58f,0.72f); glutSolidSphere(0.46f,18,18); glPopMatrix();
+    glColor4f(0.88f,0.35f,0.18f,0.4f);
+    glPushMatrix(); glTranslatef(1.6f,-0.28f,1.72f); glScalef(0.9f,0.5f,0.6f); glutSolidSphere(0.32f,12,12); glPopMatrix();
+    glDepthMask(GL_TRUE);
+    glEnable(GL_LIGHTING);
+
+    if (selectedPlanet==5) drawSelectionRing(2.2f, sunPulse*0.08f);
+    glPopMatrix();
+}
+
+void drawSaturn()
+{
+    float orbitR=42.0f;
+    drawOrbitRing(orbitR,0.9f,0.85f,0.65f,0.15f);
+    glPushMatrix();
+    glRotatef(saturnAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(saturnRotation,0,1,0);
+
+    glPushMatrix(); glScalef(1.0f,0.92f,1.0f);
+    drawAtmosphere(1.85f,0.92f,0.85f,0.62f,0.16f);
+    drawBandedSphere(1.85f,12,
+        0.92f,0.86f,0.62f,
+        0.78f,0.70f,0.48f,
+        -1,0,0);
+    glPopMatrix();
+
+    if (selectedPlanet==6) drawSelectionRing(4.5f, sunPulse*0.08f);
+
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.82f,0.76f,0.55f,0.68f);
+    glPushMatrix(); glRotatef(72.0f,1,0,0); glutSolidTorus(0.10f,2.25f,5,100); glPopMatrix();
+    glColor4f(0.90f,0.82f,0.58f,0.65f);
+    glPushMatrix(); glRotatef(72.0f,1,0,0); glutSolidTorus(0.17f,2.75f,5,100); glPopMatrix();
+    glColor4f(0.76f,0.68f,0.48f,0.52f);
+    glPushMatrix(); glRotatef(72.0f,1,0,0); glutSolidTorus(0.22f,3.28f,6,100); glPopMatrix();
+    glColor4f(0.65f,0.60f,0.42f,0.35f);
+    glPushMatrix(); glRotatef(72.0f,1,0,0); glutSolidTorus(0.09f,3.78f,4,80); glPopMatrix();
+    glColor4f(0.52f,0.48f,0.36f,0.20f);
+    glPushMatrix(); glRotatef(72.0f,1,0,0); glutSolidTorus(0.05f,4.18f,4,70); glPopMatrix();
+    glDepthMask(GL_TRUE);
+    glEnable(GL_LIGHTING);
+
+    glPushMatrix(); glRotatef(moonAngle*0.4f,0,1,0); glTranslatef(6.2f,0.3f,0);
+    glColor3f(0.90f,0.70f,0.28f); glutSolidSphere(0.32f,20,20); glPopMatrix();
+    glPopMatrix();
+}
+
+void drawUranus()
+{
+    float orbitR=52.0f;
+    drawOrbitRing(orbitR,0.5f,0.9f,0.92f,0.15f);
+    glPushMatrix();
+    glRotatef(uranusAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(98.0f,0,0,1);
+
+    drawAtmosphere(1.4f,0.5f,0.88f,0.92f,0.14f);
+    drawIceGiantSphere(1.4f,
+        0.52f,0.88f,0.92f,
+        0.35f,0.70f,0.78f);
+
+    if (selectedPlanet==7) drawSelectionRing(1.4f, sunPulse*0.08f);
+
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.5f,0.82f,0.88f,0.35f);
+    glutSolidTorus(0.05f,2.05f,4,72);
+    glColor4f(0.42f,0.72f,0.80f,0.20f);
+    glutSolidTorus(0.04f,2.45f,4,68);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_LIGHTING);
+
+    glPushMatrix(); glRotatef(titaniaAngle,0,1,0); glTranslatef(2.4f,0,0);
+    drawMercurySphere(0.14f); glPopMatrix();
+    glPushMatrix(); glRotatef(oberonAngle,0,1,0.1f); glTranslatef(3.0f,0,0);
+    drawMercurySphere(0.12f); glPopMatrix();
+    glPopMatrix();
+}
+
+void drawNeptune()
+{
+    float orbitR=62.0f;
+    drawOrbitRing(orbitR,0.15f,0.3f,0.9f,0.18f);
+    glPushMatrix();
+    glRotatef(neptuneAngle,0,1,0);
+    glTranslatef(orbitR,0,0);
+    glRotatef(neptuneRotation,0,1,0);
+
+    drawAtmosphere(1.3f,0.18f,0.32f,0.95f,0.16f);
+    drawIceGiantSphere(1.3f,
+        0.22f,0.38f,0.98f,
+        0.06f,0.14f,0.72f);
+
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.05f,0.10f,0.55f,0.60f);
+    glPushMatrix(); glTranslatef(0.85f,0.2f,1.0f); glScalef(1.0f,0.5f,0.8f); glutSolidSphere(0.28f,12,12); glPopMatrix();
+    glDepthMask(GL_TRUE);
+    glEnable(GL_LIGHTING);
+
+    if (selectedPlanet==8) drawSelectionRing(1.3f, sunPulse*0.08f);
+
+    glPushMatrix(); glRotatef(-tritonAngle,0,1,0.3f); glTranslatef(2.2f,0.4f,0);
+    drawIceGiantSphere(0.18f,0.75f,0.78f,0.85f,0.60f,0.62f,0.70f); glPopMatrix();
+    glPopMatrix();
+}
+
+// ============================================================
+//  HUD HELPERS
+// ============================================================
+void printText(int x, int y, const char* s, void* font=GLUT_BITMAP_8_BY_13)
+{
+    glRasterPos2i(x,y);
+    for (const char* c=s; *c; c++) glutBitmapCharacter(font,*c);
+}
+
+void printTextFloat(int x, int y, const char* fmt, float val, void* font=GLUT_BITMAP_8_BY_13)
+{
+    char buf[64]; sprintf(buf,fmt,val);
+    printText(x,y,buf,font);
+}
+
+void fillRect(float x, float y, float w, float h)
+{
+    glBegin(GL_QUADS);
+    glVertex2f(x,y); glVertex2f(x+w,y);
+    glVertex2f(x+w,y+h); glVertex2f(x,y+h);
+    glEnd();
+}
+
+void frameRect(float x, float y, float w, float h, float lw=1.0f)
+{
+    glLineWidth(lw);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(x,y); glVertex2f(x+w,y);
+    glVertex2f(x+w,y+h); glVertex2f(x,y+h);
+    glEnd();
+    glLineWidth(1.0f);
+}
+
+// ============================================================
+//  HUD  -  FIXED VERSION
+//  FIX 1: Top bar now uses TWO lines so all three names fit
+//  FIX 2: Drone Camera row drawn BELOW the planet list, no overlap
+// ============================================================
+void drawHUD()
+{
+    if (!showHUD) return;
+    glDisable(GL_LIGHTING);
+    int W=glutGet(GLUT_WINDOW_WIDTH);
+    int H=glutGet(GLUT_WINDOW_HEIGHT);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    gluOrtho2D(0,W,0,H);
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+    glDisable(GL_DEPTH_TEST);
+
+    // ===== TOP BAR (now 58px tall to fit two lines of names) =====
+    glColor4f(0.0f,0.02f,0.08f,0.88f); fillRect(0,H-58,W,58);
+    glColor4f(0.15f,0.45f,0.85f,0.6f); fillRect(0,H-58,W,1.5f); // bottom accent
+
+    // Line 1: Title + group label
+    glColor3f(1.0f,0.72f,0.08f);
+    printText(14, H-20, "SOLAR SYSTEM SIMULATION  v4.0", GLUT_BITMAP_9_BY_15);
+    glColor3f(0.6f,0.75f,0.95f);
+    printText(310, H-20, "BS-IT 6th Semester  |  Computer Graphics Lab  |  CG Project 2026");
+
+    // Line 2: All three member names on their own line, fully visible
+    glColor3f(0.45f,0.95f,0.55f);
+    // Centre the names
+    const char* names = "Faiza Altaf   |   Hadiqa Mehmood   |   Mahnoor Sharif";
+    // Measure approx width: ~8px per char with BITMAP_9_BY_15
+    int nameLen = (int)strlen(names) * 9;
+    int nameX   = (W - nameLen) / 2;
+    if (nameX < 14) nameX = 14;
+    printText(nameX, H-40, names, GLUT_BITMAP_9_BY_15);
+
+    // Decorative accent dots on both sides of names row
+    glColor3f(1.0f,0.72f,0.08f);
+    glPointSize(5.0f); glBegin(GL_POINTS);
+    glVertex2f(nameX - 12, H-40+5);
+    glVertex2f(nameX + nameLen + 12, H-40+5);
+    glEnd(); glPointSize(1.0f);
+
+    // ===== BOTTOM BAR =====
+    glColor4f(0.0f,0.02f,0.08f,0.88f); fillRect(0,0,W,56);
+    glColor4f(0.15f,0.45f,0.85f,0.5f); fillRect(0,55,W,1.5f);
+
+    glColor3f(0.55f,0.88f,1.0f);
+    char status[280];
+    sprintf(status,"  Days: %.0f  |  Speed: %.1fx  |  Cam: Yaw %.0f  Pitch %.0f  Zoom %.0f  |  %s%s",
+        totalDays, speedMultiplier, camAngleY, camAngleX, camZoom,
+        paused?"[ PAUSED ]":"[ RUNNING ]",
+        droneCamera?" | DRONE CAM":"");
+    printText(8,39,status);
+
+    glColor3f(0.52f,0.52f,0.65f);
+    printText(8,18,"[P] Pause  [+/-] Speed  [R] Reset  [O] Orbits  [T] Top View  [D] Drone Cam  [H] HUD  [F] Fullscreen  [1-8] Planet Info  [0] Close  [ESC] Quit | Mouse: Drag=Rotate, Scroll=Zoom");
+
+    // ===== SPEED BAR =====
+    int bx=W/2-100, by=43;
+    glColor4f(0.05f,0.05f,0.15f,0.75f); fillRect(bx-2,by-2,204,18);
+    glColor4f(0.15f,0.45f,0.85f,0.35f); frameRect(bx-2,by-2,204,18);
+    float barW=(speedMultiplier/10.0f)*200.0f;
+    float br=fminf(1.0f, speedMultiplier/5.0f);
+    float bg=speedMultiplier>5.0f?fmaxf(0.0f,1.0f-(speedMultiplier-5.0f)/5.0f):1.0f;
+    glColor4f(br*0.85f,bg*0.85f,0.18f,0.88f);
+    fillRect(bx,by,barW,14);
+    glColor3f(1,1,1);
+    char spd[24]; sprintf(spd,"SPEED %.1fx",speedMultiplier);
+    printText(bx+68,by+3,spd);
+
+    // ===== LEFT PANEL: PLANET LEGEND =====
+    // FIX 2: Planet list panel height = 8 planets x 18px + header ~30px = 174px
+    //         Drone row drawn SEPARATELY below with its own background, no overlap.
+    int lx=10;
+    int planetPanelH = 178;  // height for header + 8 planets
+    int dronePanelH  = 34;   // separate drone row height
+    int gap          = 4;    // gap between the two panels
+
+    // Top-left corner of planet panel (bottom of top bar = H-58)
+    int panelTop = H - 58;   // y of top edge of planet panel
+    int panelBot = panelTop - planetPanelH; // y of bottom edge
+
+    // ---- Planet panel background ----
+    glColor4f(0.0f,0.02f,0.10f,0.80f);
+    fillRect(lx-5, panelBot, 160, planetPanelH);
+    glColor4f(0.15f,0.45f,0.85f,0.35f);
+    frameRect(lx-5, panelBot, 160, planetPanelH);
+
+    // Header
+    int headerY = panelTop - 18;
+    glColor3f(0.95f,0.78f,0.25f);
+    printText(lx+2, headerY, "PLANETS", GLUT_BITMAP_9_BY_15);
+    glColor4f(0.15f,0.45f,0.85f,0.5f);
+    fillRect(lx-5, headerY-6, 160, 1.5f);
+
+    // Planet rows
+    int rowY = headerY - 22;
+    const char* pnames[]={"Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"};
+    float pcols[8][3]={
+        {0.72f,0.70f,0.66f},{0.95f,0.78f,0.45f},{0.25f,0.52f,0.95f},
+        {0.85f,0.35f,0.15f},{0.85f,0.68f,0.48f},{0.92f,0.85f,0.62f},
+        {0.5f, 0.85f,0.92f},{0.18f,0.28f,0.95f}
+    };
+    for (int i=0; i<8; i++) {
+        bool sel=(selectedPlanet==i+1);
+        if (sel) {
+            glColor4f(0.15f,0.45f,0.85f,0.25f);
+            fillRect(lx-3, rowY-2, 155, 16);
+        }
+        glColor3f(pcols[i][0],pcols[i][1],pcols[i][2]);
+        fillRect(lx, rowY, 9, 10);
+        if (sel) glColor3f(0.3f,1.0f,0.55f);
+        else     glColor3f(pcols[i][0]*0.85f,pcols[i][1]*0.85f,pcols[i][2]*0.85f);
+        char tmp[24]; sprintf(tmp," %d. %s",i+1,pnames[i]);
+        printText(lx+11, rowY, tmp);
+        rowY -= 18;
+    }
+
+    // ---- Drone Camera row: drawn BELOW planet panel with gap ----
+    int droneTop = panelBot - gap;         // top of drone panel
+    int droneBot = droneTop - dronePanelH; // bottom of drone panel
+
+    glColor4f(0.0f,0.02f,0.10f,0.80f);
+    fillRect(lx-5, droneBot, 160, dronePanelH);
+    glColor4f(0.15f,0.45f,0.85f,0.35f);
+    frameRect(lx-5, droneBot, 160, dronePanelH);
+
+    // Drone icon + label
+    glColor3f(0.45f,0.88f,1.0f);
+    printText(lx+2, droneBot+10, " [D] Drone Camera", GLUT_BITMAP_8_BY_13);
+    if (droneCamera) {
+        glColor3f(0.3f,1.0f,0.55f);
+        printText(lx+118, droneBot+10, "[ON]");
+    } else {
+        glColor3f(0.45f,0.45f,0.55f);
+        printText(lx+110, droneBot+10, "[OFF]");
+    }
+
+    // ===== RIGHT PANEL: PLANET INFO =====
+    if (selectedPlanet>0 && selectedPlanet<=8) {
+        if (infoPanelAlpha<1.0f) infoPanelAlpha+=0.06f;
+        if (infoPanelSlide<1.0f) infoPanelSlide+=0.08f;
+        if (infoPanelSlide>1.0f) infoPanelSlide=1.0f;
+    } else {
+        if (infoPanelAlpha>0.0f) infoPanelAlpha-=0.06f;
+        if (infoPanelSlide>0.0f) infoPanelSlide-=0.08f;
+        if (infoPanelSlide<0.0f) infoPanelSlide=0.0f;
+    }
+
+    if (infoPanelAlpha>0.01f && selectedPlanet>0) {
+        PlanetInfo& p=planetData[selectedPlanet];
+        float slideX=(1.0f-infoPanelSlide)*280.0f;
+        int px=(int)(W-268+slideX), py=H-68; // shifted down for taller top bar
+        float a=infoPanelAlpha;
+
+        glColor4f(0.0f,0.02f,0.10f,0.88f*a); fillRect(px-8,py-195,270,200);
+        glColor4f(p.r,p.g,p.b,0.85f*a); fillRect(px-8,py+2,270,4);
+        glColor4f(p.r*0.5f,p.g*0.5f,p.b*0.5f,0.4f*a); frameRect(px-8,py-195,270,200,1.5f);
+
+        glColor4f(p.r*1.1f,p.g*1.1f,p.b*1.1f,a);
+        printText(px,py-10,p.name,GLUT_BITMAP_9_BY_15);
+
+        glColor4f(p.r,p.g,p.b,0.35f*a); fillRect(px,py-20,250,1);
+
+        glColor4f(0.65f,0.72f,0.88f,a);
+        char line[80];
+        sprintf(line,"Diameter  : %s",p.diameter);      printText(px,py-38,line);
+        sprintf(line,"Dist. Sun : %s",p.distFromSun);   printText(px,py-54,line);
+        sprintf(line,"Orbit     : %s",p.orbitalPeriod); printText(px,py-70,line);
+        sprintf(line,"Moons     : %s",p.moons);          printText(px,py-86,line);
+
+        glColor4f(0.35f,0.98f,0.58f,a);
+        printText(px,py-106,"FUN FACT:");
+        glColor4f(0.88f,0.90f,0.72f,a);
+        const char* fact=p.funFact;
+        int maxW=32, bi=0, fy=py-120;
+        char buf[80]; buf[0]='\0';
+        for (int fi=0; ; fi++) {
+            buf[bi++]=fact[fi];
+            if (fact[fi]=='\0'||(bi>=maxW&&fact[fi]==' ')) {
+                buf[(fact[fi]==' ')?bi-1:bi]='\0';
+                printText(px,fy,buf); fy-=15; bi=0;
+                if (fact[fi]=='\0') break;
+            }
+        }
+        glColor4f(0.4f,0.5f,0.6f,0.7f*a);
+        printText(px,py-188,"[0] Close Panel");
+    }
+
+    // ===== VIEW MODE BADGE =====
+    if (topDownView) {
+        glColor4f(0.0f,0.5f,0.2f,0.75f); fillRect(W/2-65,H-78,130,18);
+        glColor3f(0.25f,1.0f,0.55f);
+        printText(W/2-60,H-74,"  TOP-DOWN VIEW");
+    }
+    if (droneCamera) {
+        glColor4f(0.0f,0.2f,0.5f,0.75f); fillRect(W/2-65,H-100,130,18);
+        glColor3f(0.4f,0.85f,1.0f);
+        printText(W/2-60,H-96,"  DRONE  CAMERA");
+    }
+
+    // ===== MINI COMPASS (top right, moved down for taller top bar) =====
+    int cx=W-60, cy=H-75;
+    glColor4f(0.0f,0.02f,0.10f,0.72f);
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex2i(cx,cy);
+    for (int i=0;i<=32;i++){float aa=i*2*PI/32; glVertex2f(cx+22*cosf(aa),cy+22*sinf(aa));}
+    glEnd();
+    glColor4f(0.15f,0.45f,0.85f,0.5f);
+    glBegin(GL_LINE_LOOP);
+    for (int i=0;i<32;i++){float aa=i*2*PI/32; glVertex2f(cx+22*cosf(aa),cy+22*sinf(aa));}
+    glEnd();
+    float cya=-camAngleY*PI/180.0f;
+    glColor3f(0.95f,0.25f,0.25f);
+    glBegin(GL_LINES);
+    glVertex2f(cx,cy);
+    glVertex2f(cx+17*sinf(cya),cy+17*cosf(cya));
+    glEnd();
+    glColor3f(0.45f,0.45f,0.55f);
+    glBegin(GL_LINES);
+    glVertex2f(cx,cy);
+    glVertex2f(cx-12*sinf(cya),cy-12*cosf(cya));
+    glEnd();
+    glColor3f(0.7f,0.7f,0.8f); printText(cx-2,cy+24,"N",GLUT_BITMAP_8_BY_13);
+
+    glEnable(GL_DEPTH_TEST);
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glEnable(GL_LIGHTING);
+}
+
+// ============================================================
+//  DISPLAY
+// ============================================================
+void display()
+{
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    glLoadIdentity();
+
+    if (droneCamera) {
+        float lookX=droneX, lookY=droneY, lookZ=droneZ;
+        float offAngle=(droneAngle+180.0f)*PI/180.0f;
+        float tiltR=droneTilt*PI/180.0f;
+        float eyeX=lookX + droneCamZoom*sinf(offAngle)*cosf(tiltR);
+        float eyeY=lookY + droneCamZoom*sinf(tiltR);
+        float eyeZ=lookZ + droneCamZoom*cosf(offAngle)*cosf(tiltR);
+        gluLookAt(eyeX,eyeY,eyeZ, lookX,lookY,lookZ, 0,1,0);
+    } else {
+        float eax=topDownView?89.0f:camAngleX;
+        float cy2=camZoom*sinf(camAngleY*PI/180.0f)*cosf(eax*PI/180.0f);
+        float ey =camZoom*sinf(eax*PI/180.0f);
+        float cz =camZoom*cosf(camAngleY*PI/180.0f)*cosf(eax*PI/180.0f);
+        gluLookAt(cy2,ey,cz, 0,0,0, 0,1,0);
+    }
+
+    setupLighting();
+    drawStars();
+    drawShootingStar();
+    drawKuiperBelt();
+    drawAsteroidBelt();
+    drawSun();
+    drawMercury();
+    drawVenus();
+    drawEarthSystem();
+    drawMarsSystem();
+    drawJupiter();
+    drawSaturn();
+    drawUranus();
+    drawNeptune();
+    drawComet();
+    drawDrone();
+    drawHUD();
+
+    glutSwapBuffers();
+}
+
+// ============================================================
+//  TIMER / UPDATE
+// ============================================================
+void update(int)
+{
+    if (!paused) {
+        float s=speedMultiplier;
+
+        mercuryAngle +=4.15f*s; venusAngle  +=1.62f*s;
+        earthAngle   +=1.00f*s; marsAngle   +=0.53f*s;
+        jupiterAngle +=0.084f*s; saturnAngle +=0.034f*s;
+        uranusAngle  +=0.012f*s; neptuneAngle+=0.006f*s;
+
+        moonAngle    +=13.2f*s; phobosAngle +=22.0f*s;
+        deimosAngle  +=10.5f*s; titaniaAngle+=5.5f*s;
+        oberonAngle  +=3.8f*s;  tritonAngle +=8.0f*s;
+
+        sunRotation    +=0.18f*s; earthRotation  +=5.2f*s;
+        marsRotation   +=5.0f*s;  jupiterRotation+=12.0f*s;
+        saturnRotation +=8.0f*s;  neptuneRotation+=4.0f*s;
+        venusRotation  +=0.8f*s;  mercuryRotation+=0.6f*s;
+
+        sunPulse      +=1.0f;
+        asteroidAngle +=0.04f*s;
+        cometAngle    +=0.14f*s;
+        nebulaPhase   +=1.0f;
+        totalDays     +=(1.0f/360.0f)*s;
+        for (int i=1;i<=8;i++) planetGlowPhase[i]+=0.05f*s;
+
+        droneAngle    +=0.35f*s;
+        droneRotation +=2.0f*s;
+        float da=droneAngle*PI/180.0f;
+        float dt=droneTilt*PI/180.0f;
+        droneX=droneRadius*cosf(da);
+        droneY=droneRadius*sinf(da)*sinf(dt)*0.5f;
+        droneZ=droneRadius*sinf(da)*cosf(dt);
+
+        droneBlinkTimer+=1.0f;
+        if (droneBlinkTimer>18.0f) { droneBlinkOn=!droneBlinkOn; droneBlinkTimer=0; }
+
+        shootingStarTimer+=1.0f;
+        if (shootingStar.active) {
+            shootingStar.x+=shootingStar.dx;
+            shootingStar.y+=shootingStar.dy;
+            shootingStar.z+=shootingStar.dz;
+            shootingStar.life-=1.0f;
+            if (shootingStar.life<=0) shootingStar.active=false;
+        } else if (shootingStarTimer>320.0f) {
+            initShootingStar(); shootingStarTimer=0;
+        }
+
+        auto w=[](float& a){if(a>=360)a-=360;if(a<0)a+=360;};
+        w(mercuryAngle); w(venusAngle);    w(earthAngle);    w(marsAngle);
+        w(jupiterAngle); w(saturnAngle);   w(uranusAngle);   w(neptuneAngle);
+        w(moonAngle);    w(phobosAngle);   w(deimosAngle);   w(titaniaAngle);
+        w(oberonAngle);  w(tritonAngle);   w(sunRotation);   w(earthRotation);
+        w(marsRotation); w(jupiterRotation);w(saturnRotation);w(neptuneRotation);
+        w(venusRotation);w(mercuryRotation);w(asteroidAngle);w(cometAngle);
+        w(droneAngle);   w(droneRotation);
+    }
+    glutPostRedisplay();
+    glutTimerFunc(16,update,0);
+}
+
+// ============================================================
+//  KEYBOARD
+// ============================================================
+void keyboard(unsigned char key, int, int)
+{
+    switch (key) {
+        case 'p': case 'P': paused=!paused; break;
+        case '+': case '=': speedMultiplier=fminf(speedMultiplier+0.5f,10.0f); break;
+        case '-': case '_': speedMultiplier=fmaxf(speedMultiplier-0.5f,0.1f);  break;
+        case 'o': case 'O': showOrbits=!showOrbits; break;
+        case 't': case 'T': topDownView=!topDownView; droneCamera=false; break;
+        case 'd': case 'D': droneCamera=!droneCamera; topDownView=false; break;
+        case 'h': case 'H': showHUD=!showHUD; break;
+        case 'f': case 'F':
+            fullscreen=!fullscreen;
+            if(fullscreen) glutFullScreen();
+            else { glutReshapeWindow(1280,720); glutPositionWindow(60,30); }
+            break;
+        case '1': selectedPlanet=1; break; case '2': selectedPlanet=2; break;
+        case '3': selectedPlanet=3; break; case '4': selectedPlanet=4; break;
+        case '5': selectedPlanet=5; break; case '6': selectedPlanet=6; break;
+        case '7': selectedPlanet=7; break; case '8': selectedPlanet=8; break;
+        case '0': selectedPlanet=0; break;
+        case 'r': case 'R':
+            earthAngle=marsAngle=venusAngle=mercuryAngle=0;
+            jupiterAngle=saturnAngle=uranusAngle=neptuneAngle=0;
+            moonAngle=phobosAngle=deimosAngle=0;
+            titaniaAngle=oberonAngle=tritonAngle=0;
+            asteroidAngle=sunPulse=totalDays=cometAngle=droneAngle=0;
+            speedMultiplier=1.0f; paused=false; selectedPlanet=0;
+            topDownView=false; droneCamera=false; showOrbits=true; showHUD=true;
+            break;
+        case 27: exit(0);
+    }
+    glutPostRedisplay();
+}
+
+void specialKeys(int key, int, int)
+{
+    if (droneCamera) {
+        switch(key){
+            case GLUT_KEY_UP:    droneCamAngleX-=3; break;
+            case GLUT_KEY_DOWN:  droneCamAngleX+=3; break;
+            case GLUT_KEY_LEFT:  droneCamAngleY-=3; break;
+            case GLUT_KEY_RIGHT: droneCamAngleY+=3; break;
+        }
+    } else {
+        switch(key){
+            case GLUT_KEY_UP:    camAngleX-=3; break;
+            case GLUT_KEY_DOWN:  camAngleX+=3; break;
+            case GLUT_KEY_LEFT:  camAngleY-=3; break;
+            case GLUT_KEY_RIGHT: camAngleY+=3; break;
+        }
+        if(camAngleX> 88) camAngleX= 88;
+        if(camAngleX<-88) camAngleX=-88;
+    }
+    glutPostRedisplay();
+}
+
+// ============================================================
+//  MOUSE
+// ============================================================
+void mouse(int button, int state, int x, int y)
+{
+    if (button==GLUT_LEFT_BUTTON) { mouseDown=(state==GLUT_DOWN); lastMouseX=x; lastMouseY=y; }
+    if (button==3) {
+        if(droneCamera) droneCamZoom=fmaxf(droneCamZoom-2.0f,4.0f);
+        else camZoom=fmaxf(camZoom-2.5f,10.0f);
+        glutPostRedisplay();
+    }
+    if (button==4) {
+        if(droneCamera) droneCamZoom=fminf(droneCamZoom+2.0f,80.0f);
+        else camZoom=fminf(camZoom+2.5f,200.0f);
+        glutPostRedisplay();
+    }
+}
+
+void mouseMotion(int x, int y)
+{
+    if (mouseDown) {
+        if (droneCamera) {
+            droneCamAngleY+=(x-lastMouseX)*0.5f;
+            droneCamAngleX+=(y-lastMouseY)*0.5f;
+        } else {
+            camAngleY+=(x-lastMouseX)*0.5f;
+            camAngleX+=(y-lastMouseY)*0.5f;
+            if(camAngleX> 88) camAngleX= 88;
+            if(camAngleX<-88) camAngleX=-88;
+        }
+        lastMouseX=x; lastMouseY=y;
+        glutPostRedisplay();
+    }
+}
+
+// ============================================================
+//  RESHAPE
+// ============================================================
+void reshape(int w, int h)
+{
+    if(h==0) h=1;
+    glViewport(0,0,w,h);
+    glMatrixMode(GL_PROJECTION); glLoadIdentity();
+    gluPerspective(45.0,(double)w/h,0.3,900.0);
+    glMatrixMode(GL_MODELVIEW);
+}
+
+// ============================================================
+//  MAIN
+// ============================================================
+int main(int argc, char** argv)
+{
+    glutInit(&argc,argv);
+    glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB|GLUT_DEPTH);
+    glutInitWindowSize(1280,720);
+    glutInitWindowPosition(60,30);
+    glutCreateWindow("Interactive Solar System Simulation v4.0  |  CG Project 2026  |  BS-IT 6th Sem");
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glClearColor(0.0f,0.0f,0.025f,1.0f);
+    glEnable(GL_POINT_SMOOTH);
+    glEnable(GL_LINE_SMOOTH);
+
+    initAsteroids();
+    initKuiperBelt();
+    shootingStar.active=false;
+    shootingStarTimer=290.0f;
+
+    droneX=droneRadius; droneY=0; droneZ=0;
+
+    glutDisplayFunc(display);
+    glutReshapeFunc(reshape);
+    glutKeyboardFunc(keyboard);
+    glutSpecialFunc(specialKeys);
+    glutMouseFunc(mouse);
+    glutMotionFunc(mouseMotion);
+    glutTimerFunc(16,update,0);
+
+    printf("========================================================\n");
+    printf("   SOLAR SYSTEM SIMULATION  v4.0  [FIXED HUD]\n");
+    printf("   BS-IT 6th Sem  |  CG Lab Project 2026\n");
+    printf("   Group: Faiza Altaf | Hadiqa Mehmood | Mahnoor Sharif\n");
+    printf("========================================================\n");
+    printf("  FIXES in this build:\n");
+    printf("   - Top bar now 2-line: all 3 names fully visible\n");
+    printf("   - Drone Camera panel separated below planet list\n");
+    printf("   - No text overlap anywhere\n");
+    printf("========================================================\n");
+    printf("  CONTROLS:\n");
+    printf("  [P]        Pause / Resume\n");
+    printf("  [+]/[-]    Speed up / Slow down\n");
+    printf("  [R]        Reset everything\n");
+    printf("  [O]        Toggle orbit rings\n");
+    printf("  [T]        Top-down view\n");
+    printf("  [D]        Drone camera mode\n");
+    printf("  [H]        Toggle HUD\n");
+    printf("  [F]        Fullscreen\n");
+    printf("  [1-8]      Planet info panel\n");
+    printf("  [0]        Close info panel\n");
+    printf("  Arrows     Rotate / tilt camera\n");
+    printf("  Mouse Drag Rotate camera\n");
+    printf("  Scroll     Zoom in/out\n");
+    printf("  [ESC]      Quit\n");
+    printf("========================================================\n");
+
+    glutMainLoop();
+    return 0;
+}
